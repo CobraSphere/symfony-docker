@@ -1,0 +1,44 @@
+# This is a sample build configuration for Docker by CobraSphere based on the Atlassian example
+# Check our guides at https://confluence.atlassian.com/x/O1toN for more examples.
+# Only use spaces to indent your .yml configuration.
+# -----
+# You can specify a custom docker image from Docker Hub as your build environment.
+image: atlassian/default-image:2
+
+pipelines:
+  custom:
+    master:
+      - step:
+          services:
+            - docker
+          caches:
+            - docker
+          script:
+            # Configure in Bitbucket Environment Variables or hardcode as appropriate
+            - export CS_CUSTOMER_ORG_ID=$CS_CUSTOMER_ORG_ID          # organisation namespace in the Docker Repo (e.g. cobrasphere)
+            - export CS_CUSTOMER_ORG_APP=$CS_CUSTOMER_ORG_APP        # desired docker image name (e.g. myapp-cloud-app)
+            - export CS_CUSTOMER_ORG_PROXY=$CS_CUSTOMER_ORG_PROXY    # desired docker image name for the reverse proxy (e.g. myapp-cloud-nginx)
+            - export DOCKERFILE_APP_STAGE_NAME=symfony_docker_php    # change to match the app name Dockerfile (i.e. the part after "AS ")
+            - export DOCKERFILE_PROXY_STAGE_REV=symfony_docker_nginx # change to match the proxy name Dockerfile (i.e. the part after "AS ")
+
+            # Variable prep
+            - export APP_IMAGE_NAME=$CS_CUSTOMER_ORG_ID/$CS_CUSTOMER_ORG_APP
+            - export SRV_IMAGE_NAME=$CS_CUSTOMER_ORG_ID/$CS_CUSTOMER_ORG_REVERSE_PROXY
+            - export VERSION=$(cat VERSION)
+
+            # Tag the release with the VERSION
+            - git tag $VERSION
+            - git push origin --tags
+
+            # build the Docker image (this will use the Dockerfile in the root of the repo)
+            - docker build --build-arg BUILD_NUMBER=$BITBUCKET_BUILD_NUMBER -t $APP_IMAGE_NAME -t $APP_IMAGE_NAME:$VERSION.$BITBUCKET_BUILD_NUMBER . --target $DOCKERFILE_APP_STAGE_NAME
+            - docker build --build-arg BUILD_NUMBER=$BITBUCKET_BUILD_NUMBER -t $SRV_IMAGE_NAME -t $SRV_IMAGE_NAME:$VERSION.$BITBUCKET_BUILD_NUMBER . --target $DOCKERFILE_PROXY_STAGE_REV
+
+            # authenticate with the Docker Hub registry
+            - docker login --username $DOCKER_HUB_USERNAME --password $DOCKER_HUB_PASSWORD
+
+            # push the new Docker image to the Docker registry
+            - docker push $APP_IMAGE_NAME:$VERSION.$BITBUCKET_BUILD_NUMBER
+            - docker push $SRV_IMAGE_NAME:$VERSION.$BITBUCKET_BUILD_NUMBER
+            - docker push $APP_IMAGE_NAME
+            - docker push $SRV_IMAGE_NAME
